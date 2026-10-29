@@ -82,6 +82,7 @@ const sha256hex = async t => Array.from(new Uint8Array(await crypto.subtle.diges
 const GAS = typeof google !== "undefined" && google.script && google.script.run;
 const gsr = (fn, ...args) => new Promise((ok, bad) => google.script.run.withSuccessHandler(ok).withFailureHandler(bad)[fn](...args));
 async function callApi(payload) { return GAS ? gsr("portalApi", payload) : (await fetch(SES.kit.url, {method: "POST", body: JSON.stringify(payload)})).json(); }
+const appUrl = () => (DATA && DATA.appUrl) || "https://nazmulhc.github.io/Krishak_Bari/app";
 let ASKPW = false, LIST = [], SES = null, TAB = "members", ELINES = [], ETYPE = "Payment";
 const initials = n => String(n).split(/\s+/).filter(w => /^[A-Za-z]/.test(w) && !/^(md|mohammad|mohammed)\.?$/i.test(w)).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
 
@@ -97,7 +98,10 @@ function loginView(msg) {
   $("#app").innerHTML = `<div class="card"><h2>See your statement</h2><div class="muted" style="font-size:14px">Enter the Portal ID and PIN given to you by the society.</div>
     <form id="f"><label for="mid">Portal ID</label><input id="mid" inputmode="text" autocomplete="username" placeholder="Portal ID" value="${esc(last)}">
     <label for="pin">PIN</label><input id="pin" type="password" autocomplete="current-password" placeholder="6 characters">
-    <div class="err" id="err">${esc(msg || "")}</div><button style="width:100%;margin-top:6px" type="submit">Open my statement</button></form></div>`;
+    <div class="err" id="err">${esc(msg || "")}</div><button style="width:100%;margin-top:6px" type="submit">Open my statement</button></form>
+    <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:14px;text-align:center"><div class="muted" style="font-size:13px;margin-bottom:8px">Society admins</div>
+    <a href="${esc(appUrl())}" target="_top" style="display:block;text-decoration:none;text-align:center;padding:11px 16px;border-radius:10px;border:1px solid var(--g8);color:var(--g8);font-weight:600">Admin login – full books</a>
+    <div class="sub" style="margin-top:6px">Only allowed admin login IDs and passwords can enter.</div></div></div>`;
   $("#f").onsubmit = async e => {
     e.preventDefault();
     const id = $("#mid").value.trim().toUpperCase(), pin = $("#pin").value.trim().toUpperCase();
@@ -155,6 +159,7 @@ function adminHome() {
     .concat(role === "mainadmin" ? [["approvals", "Approvals"], ["users", "Users"]] : role === "subadmin" ? [["entry", "New entry"], ["mine", "My entries"]] : []);
   const title = {mainadmin: "Main Admin", subadmin: "Sub Admin – enter for approval", moderator: "Moderator – view only"}[role];
   $("#app").innerHTML = `<div class="card"><div class="row"><div class="avatar">${initials(r.me.name)}</div><div><b style="font-size:16px">${esc(r.me.name)}</b><div class="muted" style="font-size:13px">${title}</div></div><span class="sp"></span>
+      <a class="ghost" href="${esc(appUrl())}" target="_top" style="text-decoration:none;padding:8px 12px;border-radius:10px;border:1px solid var(--line);color:var(--g8);font-weight:600;font-size:13px">Open full app</a>
       ${r.kit ? `<button class="ghost" onclick="ASKPW=true;adminHome()">Change password</button>` : ""}<button class="ghost" onclick="loginView()">Log out</button></div></div>
     ${ASKPW && r.kit ? `<div class="card"><h2>Change your password</h2><div class="muted" style="font-size:14px">${r.must ? "You are using the first password given to you. You can set your own now (optional)." : "Set a new password."} At least 4 letters or numbers.</div>
       <div class="f"><label>New password</label><input id="np1" type="password" autocomplete="new-password"><label>New password again</label><input id="np2" type="password" autocomplete="new-password"></div>
