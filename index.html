@@ -171,6 +171,7 @@ function tabUsers() {
   $("#tabBody").innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:8px">Only you can see this list.</div><table><thead><tr><th>Login ID</th><th>Name</th><th>Role</th></tr></thead><tbody>${(SES.users || []).map(u => `<tr><td>${esc(u.uid)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}${u.must ? '<div class="sub">first password not changed yet</div>' : ""}</td></tr>`).join("")}
     <tr><td>${esc(SES.memberLogin || "")}</td><td>All members</td><td>Member</td></tr></tbody></table><div class="sub" style="margin-top:8px">Logins and passwords are changed in the Krishak Bari app (Members → Member Portal).</div>`;
 }
+const sentAt = r => { const m = String(r.id || "").match(/^S-(\d\d)(\d\d)(\d\d)-(\d\d)(\d\d)/); return m ? `${m[3]}-${MN[+m[2] - 1]}-20${m[1]} ${m[4]}:${m[5]}` : r.submitted; };
 async function tabApprovals() {
   if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
   $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
@@ -181,7 +182,7 @@ async function tabApprovals() {
     const rows = res.rows || [], pend = rows.filter(r => r.status === "Pending"), done = rows.filter(r => r.status !== "Pending").slice(-10).reverse();
     $("#tabBody").innerHTML = `<div class="sub" style="margin-bottom:8px">Approved entries are posted into the books automatically when the Krishak Bari app is next open on the laptop.</div>
       ${pend.length ? pend.map(r => { const e = r.entry || {}; return `<div class="ln"><div class="row"><b>${esc(e.vtype)} · Tk ${fmt(r.amount)}</b><span class="sp"></span><span class="sub">${fmtD(e.date)}</span></div>
-        <div class="sub">${esc(r.by)} · sent ${esc(r.submitted)}${e.ref ? " · " + esc(e.ref) : ""}</div>${e.note ? `<div style="margin-top:4px">${esc(e.note)}</div>` : ""}
+        <div class="sub">${esc(r.by)} · sent ${esc(sentAt(r))}${e.ref ? " · " + esc(e.ref) : ""}</div>${e.note ? `<div style="margin-top:4px">${esc(e.note)}</div>` : ""}
         <table style="margin-top:6px"><tbody>${(e.lines || []).map(l => `<tr><td>${esc(nm(l.acc))}<div class="sub">${esc([l.project, l.desc].filter(Boolean).join(" · "))}</div></td><td class="num">${l.dr ? fmt(l.dr) : ""}</td><td class="num">${l.cr ? fmt(l.cr) : ""}</td></tr>`).join("")}</tbody></table>
         <div class="row" style="margin-top:8px"><button onclick="decide('${esc(r.id)}','Approved')">Approve</button><button class="ghost" onclick="decide('${esc(r.id)}','Rejected')">Reject</button></div></div>`; }).join("") : `<div class="muted">Nothing waiting for approval.</div>`}
       ${done.length ? `<h2 style="margin-top:16px">Recently decided</h2><table><tbody>${done.map(r => `<tr><td>${esc((r.entry || {}).vtype)} · ${fmtD((r.entry || {}).date)}<div class="sub">${esc(r.by)}</div></td><td class="num">${fmt(r.amount)}</td><td><span class="st ${esc(r.status)}">${esc(r.status)}</span><div class="sub">${esc(r.vno || (r.status === "Approved" ? "posting when laptop app opens" : r.note))}</div></td></tr>`).join("")}</tbody></table>` : ""}`;
