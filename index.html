@@ -172,6 +172,7 @@ function tabUsers() {
     <tr><td>${esc(SES.memberLogin || "")}</td><td>All members</td><td>Member</td></tr></tbody></table><div class="sub" style="margin-top:8px">Logins and passwords are changed in the Krishak Bari app (Members → Member Portal).</div>`;
 }
 async function tabApprovals() {
+  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
   $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
   const nm = c => ((SES.kit.accounts || []).find(a => a.c === c) || {}).n || c;
   try {
@@ -216,6 +217,7 @@ const projOpt = sel => `<option value="">— project —</option>` + K().project
 const memOpt = sel => `<option value="">— member —</option>` + LIST.map(m => `<option value="${m.id}" ${m.id === sel ? "selected" : ""}>${esc(m.sl ? m.sl + ". " : "")}${esc(m.name)}</option>`).join("");
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 function tabEntry() {
+  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
   const cash = K().accounts.filter(a => a.cash);
   if (!ELINES.length) ELINES = [{acc: "", project: "", mid: "", desc: "", amt: "", dr: "", cr: ""}];
   $("#tabBody").innerHTML = `<div class="f">
@@ -286,6 +288,7 @@ async function sendEntry() {
   } catch (e) { err("Could not send – check the internet connection and try again."); }
 }
 async function tabMine() {
+  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
   $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
   try {
     const res = await (await fetch(K().url, {method: "POST", body: JSON.stringify({key: K().key, action: "mine", by: (SES.me.uid || SES.me.id) + " " + SES.me.name})})).json();
