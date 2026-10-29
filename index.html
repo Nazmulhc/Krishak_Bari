@@ -112,10 +112,12 @@ async function getSso(id, pin) {      // one-time code so "Open full app" needs 
 }
 function loginView(msg) {
   SES = null; SSO = "";
-  let last = ""; try { last = localStorage.getItem("kb_id") || ""; } catch (e) { }
+  let last = "", lastPw = ""; try { last = localStorage.getItem("kb_id") || ""; lastPw = localStorage.getItem("kb_pw") || ""; } catch (e) { }
   $("#app").innerHTML = `<div class="card"><h2>See your statement</h2><div class="muted" style="font-size:14px">Enter the Login ID and password given to you by the society.</div>
     <form id="f"><label for="mid">Login ID</label><input id="mid" inputmode="text" autocomplete="username" placeholder="Login ID" value="${esc(last)}">
-    <label for="pin">Password</label><input id="pin" type="password" autocomplete="current-password" placeholder="Password">
+    <label for="pin">Password</label><input id="pin" type="password" autocomplete="current-password" placeholder="Password" value="${esc(lastPw)}">
+    <label style="display:flex;gap:10px;align-items:center;font-size:14px;font-weight:500;color:var(--ink,#1c261f);margin:12px 0 4px;cursor:pointer"><input type="checkbox" id="rem" ${lastPw ? "checked" : ""} style="width:20px;height:20px;margin:0;flex:none">Remember my Login ID and password on this device</label>
+    <div class="sub" style="margin-bottom:6px">Tick only on your own phone or computer.</div>
     <div class="err" id="err">${esc(msg || "")}</div><button style="width:100%;margin-top:6px" type="submit">Open my statement</button></form>
     <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:14px;text-align:center"><div class="muted" style="font-size:13px;margin-bottom:8px">Society admins</div>
     <a href="${esc(appUrl())}" target="_top" style="display:block;text-decoration:none;text-align:center;padding:11px 16px;border-radius:10px;border:1px solid var(--g8);color:var(--g8);font-weight:600">Admin login – full books</a>
@@ -132,13 +134,13 @@ function loginView(msg) {
     } else boxes = (DATA.logins || {})[await sha256hex("KB|" + id)] || [];
     for (const box of boxes) {
       let r = null; try { r = await decrypt(box, pin); } catch (x) { continue; }
-      try { localStorage.setItem("kb_id", id); } catch (x) { }
+      try { localStorage.setItem("kb_id", id); if ($("#rem").checked) localStorage.setItem("kb_pw", pin); else localStorage.removeItem("kb_pw"); } catch (x) { }
       SES = r; LIST = r.members; LOGID = id; SSO = ""; ASKPW = !!r.must; if (isStaff()) { TAB = "members"; getSso(id, pin); return adminHome(); }
       return LIST.length === 1 ? show(LIST[0]) : pick();
     }
     $("#err").textContent = "Login ID or password is not correct.";
   };
-  (last ? $("#pin") : $("#mid")).focus();
+  (lastPw ? $("#f button") : last ? $("#pin") : $("#mid")).focus();
 }
 function pick() {
   $("#app").innerHTML = `<div class="card"><h2>Choose your name</h2><input id="q" placeholder="Search name or SL" style="text-transform:none" oninput="pickList()"><div id="plist" style="margin-top:10px"></div>
@@ -204,6 +206,7 @@ async function changePw() {
     const res = await pApi({action: "chpw", uid: LOGID, old: o, pw: a, box, v});
     if (!res || !res.ok) return err((res && res.error) || "Not accepted.");
     SES.must = false; ASKPW = false;
+    try { if (localStorage.getItem("kb_pw")) localStorage.setItem("kb_pw", a); if (localStorage.getItem("kb_app_pw") && (localStorage.getItem("kb_app_id") || "").toUpperCase() === LOGID) localStorage.setItem("kb_app_pw", a); } catch (e) { }
     alert("Password changed. From now on log in with your new password.");
     isStaff() ? adminHome() : show(LIST[0]);
   } catch (e) { err("Could not change – check the internet connection and try again."); }
