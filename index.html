@@ -83,7 +83,7 @@ const GAS = typeof google !== "undefined" && google.script && google.script.run;
 const gsr = (fn, ...args) => new Promise((ok, bad) => google.script.run.withSuccessHandler(ok).withFailureHandler(bad)[fn](...args));
 async function callApi(payload) { return GAS ? gsr("portalApi", payload) : (await fetch(SES.kit.url, {method: "POST", body: JSON.stringify(payload)})).json(); }
 const appUrl = () => (DATA && DATA.appUrl) || "https://nazmulhc.github.io/Krishak_Bari/app";
-let ASKPW = false, LIST = [], SES = null, TAB = "members", ELINES = [], ETYPE = "Payment";
+let ASKPW = false, LIST = [], SES = null, TAB = "members", ELINES = [], ETYPE = "Payment", LOGID = "", SSO = "";
 const initials = n => String(n).split(/\s+/).filter(w => /^[A-Za-z]/.test(w) && !/^(md|mohammad|mohammed)\.?$/i.test(w)).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
 
 async function decrypt(box, pin) {
@@ -93,15 +93,33 @@ async function decrypt(box, pin) {
   const pt = await crypto.subtle.decrypt({name: "AES-GCM", iv: unb64(box.i)}, key, unb64(box.d));
   return JSON.parse(new TextDecoder().decode(pt));
 }
+const b64 = buf => { const u = new Uint8Array(buf); let t = ""; for (let i = 0; i < u.length; i += 8192) t += String.fromCharCode.apply(null, u.subarray(i, i + 8192)); return btoa(t); };
+async function encFor(pin, obj) {
+  const enc = new TextEncoder(), salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const base = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({name: "PBKDF2", salt, iterations: 150000, hash: "SHA-256"}, base, {name: "AES-GCM", length: 256}, false, ["encrypt"]);
+  return {s: b64(salt), i: b64(iv), d: b64(await crypto.subtle.encrypt({name: "AES-GCM", iv}, key, enc.encode(JSON.stringify(obj))))};
+}
+// the society's Google script: on the Google page through google.script.run, on GitHub through its web address
+const pApi = async p => GAS ? gsr("portalApi", p) : (await fetch(DATA.api, {method: "POST", body: JSON.stringify(p)})).json();
+const isStaff = () => SES && ["mainadmin", "subadmin", "moderator", "admin"].includes(SES.role);
+const fullHref = () => SSO && DATA.api ? DATA.api + "?app=1&c=" + SSO : appUrl();
+async function getSso(id, pin) {      // one-time code so "Open full app" needs no second login
+  try {
+    const r = GAS ? await gsr("ssoCode", id, pin) : await pApi({action: "sso", uid: id, pw: pin});
+    if (r && r.ok) { SSO = r.code; const a = document.getElementById("fullApp"); if (a) a.href = fullHref(); }
+  } catch (e) { }
+}
 function loginView(msg) {
+  SES = null; SSO = "";
   let last = ""; try { last = localStorage.getItem("kb_id") || ""; } catch (e) { }
-  $("#app").innerHTML = `<div class="card"><h2>See your statement</h2><div class="muted" style="font-size:14px">Enter the Portal ID and PIN given to you by the society.</div>
-    <form id="f"><label for="mid">Portal ID</label><input id="mid" inputmode="text" autocomplete="username" placeholder="Portal ID" value="${esc(last)}">
-    <label for="pin">PIN</label><input id="pin" type="password" autocomplete="current-password" placeholder="6 characters">
+  $("#app").innerHTML = `<div class="card"><h2>See your statement</h2><div class="muted" style="font-size:14px">Enter the Login ID and password given to you by the society.</div>
+    <form id="f"><label for="mid">Login ID</label><input id="mid" inputmode="text" autocomplete="username" placeholder="Login ID" value="${esc(last)}">
+    <label for="pin">Password</label><input id="pin" type="password" autocomplete="current-password" placeholder="Password">
     <div class="err" id="err">${esc(msg || "")}</div><button style="width:100%;margin-top:6px" type="submit">Open my statement</button></form>
     <div style="border-top:1px solid var(--line);margin-top:18px;padding-top:14px;text-align:center"><div class="muted" style="font-size:13px;margin-bottom:8px">Society admins</div>
     <a href="${esc(appUrl())}" target="_top" style="display:block;text-decoration:none;text-align:center;padding:11px 16px;border-radius:10px;border:1px solid var(--g8);color:var(--g8);font-weight:600">Admin login – full books</a>
-    <div class="sub" style="margin-top:6px">Only allowed admin login IDs and passwords can enter.</div></div></div>`;
+    <div class="sub" style="margin-top:6px">Only allowed admin login IDs and passwords can enter. Admins who log in above can open the full books from there without logging in again.</div></div></div>`;
   $("#f").onsubmit = async e => {
     e.preventDefault();
     const id = $("#mid").value.trim().toUpperCase(), pin = $("#pin").value.trim().toUpperCase();
@@ -115,10 +133,10 @@ function loginView(msg) {
     for (const box of boxes) {
       let r = null; try { r = await decrypt(box, pin); } catch (x) { continue; }
       try { localStorage.setItem("kb_id", id); } catch (x) { }
-      SES = r; LIST = r.members; ASKPW = !!r.must; if (["mainadmin", "subadmin", "moderator", "admin"].includes(r.role)) { TAB = "members"; return adminHome(); }
+      SES = r; LIST = r.members; LOGID = id; SSO = ""; ASKPW = !!r.must; if (isStaff()) { TAB = "members"; getSso(id, pin); return adminHome(); }
       return LIST.length === 1 ? show(LIST[0]) : pick();
     }
-    $("#err").textContent = "Portal ID or PIN is not correct.";
+    $("#err").textContent = "Login ID or password is not correct.";
   };
   (last ? $("#pin") : $("#mid")).focus();
 }
@@ -149,7 +167,7 @@ function show(m) {
     ${m.rows.map(r => `<tr><td style="white-space:nowrap">${fmtD(r.d)}<div class="sub">${esc(r.v)}</div></td><td>${esc(r.l)}<div class="sub">${esc(r.t)}</div></td><td class="num ${r.a < 0 ? "neg" : ""}">${fmt(r.a)}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="2">Total paid</td><td class="num">${fmt(m.rows.reduce((a, r) => a + r.a, 0))}</td></tr></tfoot></table></div>
     ${m.old && m.old.length ? `<details style="margin-top:12px"><summary>Earlier payments (old books, ${m.old.length} entries)</summary><div class="scroll"><table><tbody>${m.old.map(r => `<tr><td style="white-space:nowrap">${fmtD(r.d)}</td><td>${esc(r.l)}<div class="sub">${esc(r.t)}</div></td><td class="num ${r.a < 0 ? "neg" : ""}">${fmt(r.a)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}</div>
-  <div class="row noprint" style="justify-content:center;margin-top:6px">${SES && SES.role !== "member" ? `<button class="ghost" onclick="adminHome()">Back to admin</button>` : LIST.length > 1 ? `<button class="ghost" onclick="pick()">Choose another name</button>` : ""}<button class="ghost" onclick="window.print()">Print / save PDF</button><button class="ghost" onclick="loginView()">Log out</button></div>`;
+  <div class="row noprint" style="justify-content:center;margin-top:6px">${SES && SES.role !== "member" ? `<button class="ghost" onclick="adminHome()">Back to admin</button>` : LIST.length > 1 ? `<button class="ghost" onclick="pick()">Choose another name</button>` : ""}${SES && SES.role === "member" && LIST.length === 1 ? `<button class="ghost" onclick="pwView()">Change password</button>` : ""}<button class="ghost" onclick="window.print()">Print / save PDF</button><button class="ghost" onclick="loginView()">Log out</button></div>`;
   window.scrollTo(0, 0);
 }
 /* ---------------- admin / sub admin ---------------- */
@@ -157,36 +175,46 @@ function adminHome() {
   const r = SES, role = r.role === "admin" ? "moderator" : r.role;
   const tabs = [["members", "All members"], ["summary", "Summary"]]
     .concat(role === "mainadmin" ? [["approvals", "Approvals"], ["users", "Users"]] : role === "subadmin" ? [["entry", "New entry"], ["mine", "My entries"]] : []);
-  const title = {mainadmin: "Main Admin", subadmin: "Sub Admin – enter for approval", moderator: "Moderator – view only"}[role];
+  const title = {mainadmin: "Administrator", subadmin: "Admin – enter for approval", moderator: "Moderator – view only"}[role];
   $("#app").innerHTML = `<div class="card"><div class="row"><div class="avatar">${initials(r.me.name)}</div><div><b style="font-size:16px">${esc(r.me.name)}</b><div class="muted" style="font-size:13px">${title}</div></div><span class="sp"></span>
-      <a class="ghost" href="${esc(appUrl())}" target="_top" style="text-decoration:none;padding:8px 12px;border-radius:10px;border:1px solid var(--line);color:var(--g8);font-weight:600;font-size:13px">Open full app</a>
-      ${r.kit ? `<button class="ghost" onclick="ASKPW=true;adminHome()">Change password</button>` : ""}<button class="ghost" onclick="loginView()">Log out</button></div></div>
-    ${ASKPW && r.kit ? `<div class="card"><h2>Change your password</h2><div class="muted" style="font-size:14px">${r.must ? "You are using the first password given to you. You can set your own now (optional)." : "Set a new password."} At least 4 letters or numbers.</div>
-      <div class="f"><label>New password</label><input id="np1" type="password" autocomplete="new-password"><label>New password again</label><input id="np2" type="password" autocomplete="new-password"></div>
-      <div class="err" id="npErr"></div><div class="row"><button onclick="changePw()">Change password</button><button class="ghost" onclick="ASKPW=false;adminHome()">Later</button></div></div>` : ""}
+      <a class="ghost" id="fullApp" href="${esc(fullHref())}" target="_top" style="text-decoration:none;padding:8px 12px;border-radius:10px;border:1px solid var(--line);color:var(--g8);font-weight:600;font-size:13px">Open full app</a>
+      ${r.me.mid && LIST.some(m => m.id === r.me.mid) ? `<button class="ghost" onclick="show(LIST.find(m => m.id === SES.me.mid))">My statement</button>` : ""}<button class="ghost" onclick="pwView()">Change password</button><button class="ghost" onclick="loginView()">Log out</button></div></div>
+    ${ASKPW ? `<div class="card"><div class="row"><div style="flex:1"><b>You are using the first password given to you.</b><div class="muted" style="font-size:14px">You can set your own now (optional).</div></div><button onclick="pwView()">Change now</button><button class="ghost" onclick="ASKPW=false;adminHome()">Later</button></div></div>` : ""}
     <div class="card"><div class="tabs">${tabs.map(([k, l]) => `<button class="${TAB === k ? "on" : ""}" onclick="TAB='${k}';adminHome()">${l}</button>`).join("")}</div><div id="tabBody"></div></div>`;
   ({members: tabMembers, summary: tabSummary, entry: tabEntry, mine: tabMine, approvals: tabApprovals, users: tabUsers})[TAB]();
   window.scrollTo(0, 0);
 }
+function pwView() {
+  const back = isStaff() ? "adminHome()" : "show(LIST[0])";
+  $("#app").innerHTML = `<div class="card"><h2>Change your password</h2><div class="muted" style="font-size:14px">Type your current password, then the new one twice. At least 4 letters or numbers.</div>
+    <div class="f"><label>Login ID</label><input value="${esc(LOGID)}" disabled><label>Current password</label><input id="op" type="password" autocomplete="current-password">
+    <label>New password</label><input id="np1" type="password" autocomplete="new-password"><label>New password again</label><input id="np2" type="password" autocomplete="new-password"></div>
+    <div class="err" id="npErr"></div><div class="row"><button onclick="changePw()">Change password</button><button class="ghost" onclick="${back}">Back</button></div></div>`;
+  $("#op").focus(); window.scrollTo(0, 0);
+}
 async function changePw() {
-  const a = $("#np1").value.trim().toUpperCase(), b = $("#np2").value.trim().toUpperCase(), err = m => { $("#npErr").textContent = m; };
-  if (a.length < 4 || !/^[A-Z0-9]+$/.test(a)) return err("At least 4 letters or numbers, no spaces.");
-  if (a !== b) return err("The two passwords are not the same.");
-  err("Sending…");
+  const o = $("#op").value.trim().toUpperCase(), a = $("#np1").value.trim().toUpperCase(), b = $("#np2").value.trim().toUpperCase(), err = m => { $("#npErr").textContent = m; };
+  if (!o) return err("Type your current password.");
+  if (a.length < 4 || !/^[A-Z0-9]+$/.test(a)) return err("New password: at least 4 letters or numbers, no spaces.");
+  if (a !== b) return err("The two new passwords are not the same.");
+  if (a === o) return err("The new password is the same as the current one.");
+  err("Changing…");
   try {
-    const res = await (callApi({key: SES.kit.key, action: "pin", by: SES.me.name, uid: SES.me.uid, pin: a}));
-    if (!res.ok) return err(res.error || "Not accepted.");
-    ASKPW = false; adminHome();
-    alert("Done. Your new password starts working after the next update of this page (when the society's computer is on). Until then, keep using the old one.");
-  } catch (e) { err("Could not send – check the internet connection."); }
+    const box = await encFor(a, Object.assign({}, SES, {must: false})), v = await sha256hex("KBV|" + LOGID + "|" + a);
+    const res = await pApi({action: "chpw", uid: LOGID, old: o, pw: a, box, v});
+    if (!res || !res.ok) return err((res && res.error) || "Not accepted.");
+    SES.must = false; ASKPW = false;
+    alert("Password changed. From now on log in with your new password.");
+    isStaff() ? adminHome() : show(LIST[0]);
+  } catch (e) { err("Could not change – check the internet connection and try again."); }
 }
 function tabUsers() {
-  $("#tabBody").innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:8px">Only you can see this list.</div><table><thead><tr><th>Login ID</th><th>Name</th><th>Role</th></tr></thead><tbody>${(SES.users || []).map(u => `<tr><td>${esc(u.uid)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}${u.must ? '<div class="sub">first password not changed yet</div>' : ""}</td></tr>`).join("")}
-    <tr><td>${esc(SES.memberLogin || "")}</td><td>All members</td><td>Member</td></tr></tbody></table><div class="sub" style="margin-top:8px">Logins and passwords are changed in the Krishak Bari app (Members → Member Portal).</div>`;
+  $("#tabBody").innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:8px">Only you can see this list.</div><table><thead><tr><th>Login ID</th><th>Name</th><th>Role</th></tr></thead><tbody>${(SES.users || []).map(u => `<tr><td>${esc(u.uid)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}${u.member ? '<div class="sub">member</div>' : ""}${u.must ? '<div class="sub">first password not changed yet</div>' : ""}</td></tr>`).join("")}
+    <tr><td>${esc(SES.memberLogin || "")}</td><td>All members</td><td>Member</td></tr></tbody></table><div class="sub" style="margin-top:8px">Logins, passwords and roles are set in the full app → System → Users & Logins.</div>`;
 }
 const sentAt = r => { const m = String(r.id || "").match(/^S-(\d\d)(\d\d)(\d\d)-(\d\d)(\d\d)/); return m ? `${m[3]}-${MN[+m[2] - 1]}-20${m[1]} ${m[4]}:${m[5]}` : r.submitted; };
 async function tabApprovals() {
-  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
+  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Administrator connects it.</div>`; return; }
   $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
   const nm = c => ((SES.kit.accounts || []).find(a => a.c === c) || {}).n || c;
   try {
@@ -203,7 +231,7 @@ async function tabApprovals() {
 }
 async function decide(id, status) {
   let note = "";
-  if (status === "Rejected") { note = prompt("Reason for rejecting (the Sub Admin will see this):", ""); if (note === null) return; note = note || "Rejected"; }
+  if (status === "Rejected") { note = prompt("Reason for rejecting (the Admin will see this):", ""); if (note === null) return; note = note || "Rejected"; }
   else if (!confirm("Approve this entry? It will be posted into the books.")) return;
   try {
     const res = await (callApi({key: SES.kit.key, action: "mark", id, status, vno: "", note}));
@@ -231,7 +259,7 @@ const projOpt = sel => `<option value="">— project —</option>` + K().project
 const memOpt = sel => `<option value="">— member —</option>` + LIST.map(m => `<option value="${m.id}" ${m.id === sel ? "selected" : ""}>${esc(m.sl ? m.sl + ". " : "")}${esc(m.name)}</option>`).join("");
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 function tabEntry() {
-  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
+  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Administrator connects it.</div>`; return; }
   const cash = K().accounts.filter(a => a.cash);
   if (!ELINES.length) ELINES = [{acc: "", project: "", mid: "", desc: "", amt: "", dr: "", cr: ""}];
   $("#tabBody").innerHTML = `<div class="f">
@@ -244,9 +272,9 @@ function tabEntry() {
       <label>Amount (Tk)</label><input id="eAmt" type="number" step="0.01" min="0" inputmode="decimal"><label>Reference</label><input id="eRef" placeholder="cheque / slip no">` : ""}
     ${ETYPE === "Journal" ? `<label>Reference</label><input id="eRef" placeholder="optional">` : ""}
     ${ETYPE !== "Bank / Cash" ? `<div id="eLines"></div><button class="ghost" style="margin-top:10px" onclick="ELINES.push({acc:'',project:'',mid:'',desc:'',amt:'',dr:'',cr:''});eLines()">+ Add line</button><div id="eTot" style="margin-top:10px;font-weight:700"></div>` : ""}
-    <label>Note for the Main Admin</label><textarea id="eNote" rows="2" placeholder="optional"></textarea>
+    <label>Note for the Administrator</label><textarea id="eNote" rows="2" placeholder="optional"></textarea>
     <div class="err" id="eErr"></div><button style="width:100%;margin-top:8px" onclick="sendEntry()">Send for approval</button>
-    <div class="sub" style="margin-top:8px">Nothing is posted until the Main Admin approves it.</div></div>`;
+    <div class="sub" style="margin-top:8px">Nothing is posted until the Administrator approves it.</div></div>`;
   if (ETYPE !== "Bank / Cash") eLines();
 }
 function eLines() {
@@ -302,7 +330,7 @@ async function sendEntry() {
   } catch (e) { err("Could not send – check the internet connection and try again."); }
 }
 async function tabMine() {
-  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Main Admin connects it.</div>`; return; }
+  if (!SES.kit) { $("#tabBody").innerHTML = `<div class="muted">The entry inbox is not set up yet. It will appear here once the Administrator connects it.</div>`; return; }
   $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
   try {
     const res = await (callApi({key: K().key, action: "mine", by: (SES.me.uid || SES.me.id) + " " + SES.me.name}));
