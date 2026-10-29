@@ -49,6 +49,16 @@ tfoot td{font-weight:700;background:var(--soft)}
 .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 details summary{cursor:pointer;color:var(--g7);font-weight:600;margin-top:4px}
 .scroll{overflow-x:auto}
+.f input,.f select,.f textarea{text-transform:none}
+select,.f textarea{width:100%;font:inherit;padding:10px 12px;border:1px solid #d6ddd6;border-radius:10px;background:#fff}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tabs button{background:#fff;color:var(--g8);border:1px solid var(--line);padding:8px 12px;font-size:14px}
+.tabs button.on{background:var(--g8);color:#fff;border-color:var(--g8)}
+.ln{border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:10px;background:var(--soft)}
+.ln .row>*{flex:1;min-width:120px}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.kpi{border:1px solid var(--line);border-radius:12px;padding:12px}.kpi b{display:block;font-size:19px;margin-top:4px}
+.st{font-size:12px;font-weight:700;padding:2px 9px;border-radius:12px}.st.Pending{background:#fbf1df;color:#94621a}.st.Approved{background:var(--g1);color:var(--g8)}.st.Rejected{background:var(--red1);color:var(--red)}
 footer{text-align:center;font-size:12px;color:var(--muted);padding:10px 16px 30px}
 @media print{header,button,footer,.noprint{display:none!important}main{margin:0}body{background:#fff}.card{box-shadow:none}}
 </style>
@@ -69,7 +79,7 @@ const MN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"
 const fmtD = iso => { if (!iso) return ""; const [y, m, d] = iso.split("-"); return `${d}-${MN[+m - 1]}-${y}`; };
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const sha256hex = async t => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))).map(b => b.toString(16).padStart(2, "0")).join("");
-let LIST = [];
+let ASKPW = false, LIST = [], SES = null, TAB = "members", ELINES = [], ETYPE = "Payment";
 const initials = n => String(n).split(/\s+/).filter(w => /^[A-Za-z]/.test(w) && !/^(md|mohammad|mohammed)\.?$/i.test(w)).slice(0, 2).map(w => w[0]).join("").toUpperCase() || "?";
 
 async function decrypt(box, pin) {
@@ -91,7 +101,10 @@ function loginView(msg) {
     $("#err").textContent = "Opening…";
     const boxes = (DATA.logins || {})[await sha256hex("KB|" + id)] || [];
     for (const box of boxes) {
-      try { const r = await decrypt(box, pin); try { localStorage.setItem("kb_id", id); } catch (x) { } LIST = r.members; return LIST.length === 1 ? show(LIST[0]) : pick(); } catch (x) { }
+      let r = null; try { r = await decrypt(box, pin); } catch (x) { continue; }
+      try { localStorage.setItem("kb_id", id); } catch (x) { }
+      SES = r; LIST = r.members; ASKPW = !!r.must; if (["mainadmin", "subadmin", "moderator", "admin"].includes(r.role)) { TAB = "members"; return adminHome(); }
+      return LIST.length === 1 ? show(LIST[0]) : pick();
     }
     $("#err").textContent = "Portal ID or PIN is not correct.";
   };
@@ -124,8 +137,162 @@ function show(m) {
     ${m.rows.map(r => `<tr><td style="white-space:nowrap">${fmtD(r.d)}<div class="sub">${esc(r.v)}</div></td><td>${esc(r.l)}<div class="sub">${esc(r.t)}</div></td><td class="num ${r.a < 0 ? "neg" : ""}">${fmt(r.a)}</td></tr>`).join("")}</tbody>
     <tfoot><tr><td colspan="2">Total paid</td><td class="num">${fmt(m.rows.reduce((a, r) => a + r.a, 0))}</td></tr></tfoot></table></div>
     ${m.old && m.old.length ? `<details style="margin-top:12px"><summary>Earlier payments (old books, ${m.old.length} entries)</summary><div class="scroll"><table><tbody>${m.old.map(r => `<tr><td style="white-space:nowrap">${fmtD(r.d)}</td><td>${esc(r.l)}<div class="sub">${esc(r.t)}</div></td><td class="num ${r.a < 0 ? "neg" : ""}">${fmt(r.a)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}</div>
-  <div class="row noprint" style="justify-content:center;margin-top:6px">${LIST.length > 1 ? `<button class="ghost" onclick="pick()">Choose another name</button>` : ""}<button class="ghost" onclick="window.print()">Print / save PDF</button><button class="ghost" onclick="loginView()">Log out</button></div>`;
+  <div class="row noprint" style="justify-content:center;margin-top:6px">${SES && SES.role !== "member" ? `<button class="ghost" onclick="adminHome()">Back to admin</button>` : LIST.length > 1 ? `<button class="ghost" onclick="pick()">Choose another name</button>` : ""}<button class="ghost" onclick="window.print()">Print / save PDF</button><button class="ghost" onclick="loginView()">Log out</button></div>`;
   window.scrollTo(0, 0);
+}
+/* ---------------- admin / sub admin ---------------- */
+function adminHome() {
+  const r = SES, role = r.role === "admin" ? "moderator" : r.role;
+  const tabs = [["members", "All members"], ["summary", "Summary"]]
+    .concat(role === "mainadmin" ? [["approvals", "Approvals"], ["users", "Users"]] : role === "subadmin" ? [["entry", "New entry"], ["mine", "My entries"]] : []);
+  const title = {mainadmin: "Main Admin", subadmin: "Sub Admin – enter for approval", moderator: "Moderator – view only"}[role];
+  $("#app").innerHTML = `<div class="card"><div class="row"><div class="avatar">${initials(r.me.name)}</div><div><b style="font-size:16px">${esc(r.me.name)}</b><div class="muted" style="font-size:13px">${title}</div></div><span class="sp"></span>
+      ${r.kit ? `<button class="ghost" onclick="ASKPW=true;adminHome()">Change password</button>` : ""}<button class="ghost" onclick="loginView()">Log out</button></div></div>
+    ${ASKPW && r.kit ? `<div class="card"><h2>Change your password</h2><div class="muted" style="font-size:14px">${r.must ? "You are using the first password given to you. You can set your own now (optional)." : "Set a new password."} At least 4 letters or numbers.</div>
+      <div class="f"><label>New password</label><input id="np1" type="password" autocomplete="new-password"><label>New password again</label><input id="np2" type="password" autocomplete="new-password"></div>
+      <div class="err" id="npErr"></div><div class="row"><button onclick="changePw()">Change password</button><button class="ghost" onclick="ASKPW=false;adminHome()">Later</button></div></div>` : ""}
+    <div class="card"><div class="tabs">${tabs.map(([k, l]) => `<button class="${TAB === k ? "on" : ""}" onclick="TAB='${k}';adminHome()">${l}</button>`).join("")}</div><div id="tabBody"></div></div>`;
+  ({members: tabMembers, summary: tabSummary, entry: tabEntry, mine: tabMine, approvals: tabApprovals, users: tabUsers})[TAB]();
+  window.scrollTo(0, 0);
+}
+async function changePw() {
+  const a = $("#np1").value.trim().toUpperCase(), b = $("#np2").value.trim().toUpperCase(), err = m => { $("#npErr").textContent = m; };
+  if (a.length < 4 || !/^[A-Z0-9]+$/.test(a)) return err("At least 4 letters or numbers, no spaces.");
+  if (a !== b) return err("The two passwords are not the same.");
+  err("Sending…");
+  try {
+    const res = await (await fetch(SES.kit.url, {method: "POST", body: JSON.stringify({key: SES.kit.key, action: "pin", by: SES.me.name, uid: SES.me.uid, pin: a})})).json();
+    if (!res.ok) return err(res.error || "Not accepted.");
+    ASKPW = false; adminHome();
+    alert("Done. Your new password starts working after the next update of this page (when the society's computer is on). Until then, keep using the old one.");
+  } catch (e) { err("Could not send – check the internet connection."); }
+}
+function tabUsers() {
+  $("#tabBody").innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:8px">Only you can see this list.</div><table><thead><tr><th>Login ID</th><th>Name</th><th>Role</th></tr></thead><tbody>${(SES.users || []).map(u => `<tr><td>${esc(u.uid)}</td><td>${esc(u.name)}</td><td>${esc(u.role)}${u.must ? '<div class="sub">first password not changed yet</div>' : ""}</td></tr>`).join("")}
+    <tr><td>${esc(SES.memberLogin || "")}</td><td>All members</td><td>Member</td></tr></tbody></table><div class="sub" style="margin-top:8px">Logins and passwords are changed in the Krishak Bari app (Members → Member Portal).</div>`;
+}
+async function tabApprovals() {
+  $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
+  const nm = c => ((SES.kit.accounts || []).find(a => a.c === c) || {}).n || c;
+  try {
+    const res = await (await fetch(SES.kit.url, {method: "POST", body: JSON.stringify({key: SES.kit.key, action: "list"})})).json();
+    if (!res.ok) throw new Error(res.error);
+    const rows = res.rows || [], pend = rows.filter(r => r.status === "Pending"), done = rows.filter(r => r.status !== "Pending").slice(-10).reverse();
+    $("#tabBody").innerHTML = `<div class="sub" style="margin-bottom:8px">Approved entries are posted into the books automatically when the Krishak Bari app is next open on the laptop.</div>
+      ${pend.length ? pend.map(r => { const e = r.entry || {}; return `<div class="ln"><div class="row"><b>${esc(e.vtype)} · Tk ${fmt(r.amount)}</b><span class="sp"></span><span class="sub">${fmtD(e.date)}</span></div>
+        <div class="sub">${esc(r.by)} · sent ${esc(r.submitted)}${e.ref ? " · " + esc(e.ref) : ""}</div>${e.note ? `<div style="margin-top:4px">${esc(e.note)}</div>` : ""}
+        <table style="margin-top:6px"><tbody>${(e.lines || []).map(l => `<tr><td>${esc(nm(l.acc))}<div class="sub">${esc([l.project, l.desc].filter(Boolean).join(" · "))}</div></td><td class="num">${l.dr ? fmt(l.dr) : ""}</td><td class="num">${l.cr ? fmt(l.cr) : ""}</td></tr>`).join("")}</tbody></table>
+        <div class="row" style="margin-top:8px"><button onclick="decide('${esc(r.id)}','Approved')">Approve</button><button class="ghost" onclick="decide('${esc(r.id)}','Rejected')">Reject</button></div></div>`; }).join("") : `<div class="muted">Nothing waiting for approval.</div>`}
+      ${done.length ? `<h2 style="margin-top:16px">Recently decided</h2><table><tbody>${done.map(r => `<tr><td>${esc((r.entry || {}).vtype)} · ${fmtD((r.entry || {}).date)}<div class="sub">${esc(r.by)}</div></td><td class="num">${fmt(r.amount)}</td><td><span class="st ${esc(r.status)}">${esc(r.status)}</span><div class="sub">${esc(r.vno || (r.status === "Approved" ? "posting when laptop app opens" : r.note))}</div></td></tr>`).join("")}</tbody></table>` : ""}`;
+  } catch (e) { $("#tabBody").innerHTML = `<div class="err">Could not load the approvals – check the internet connection.</div>`; }
+}
+async function decide(id, status) {
+  let note = "";
+  if (status === "Rejected") { note = prompt("Reason for rejecting (the Sub Admin will see this):", ""); if (note === null) return; note = note || "Rejected"; }
+  else if (!confirm("Approve this entry? It will be posted into the books.")) return;
+  try {
+    const res = await (await fetch(SES.kit.url, {method: "POST", body: JSON.stringify({key: SES.kit.key, action: "mark", id, status, vno: "", note})})).json();
+    if (!res.ok) throw new Error(res.error); tabApprovals();
+  } catch (e) { alert("Could not save – check the internet connection."); }
+}
+function tabMembers() {
+  const due = LIST.reduce((a, m) => a + m.due, 0);
+  $("#tabBody").innerHTML = `<div class="muted" style="font-size:13px;margin-bottom:8px">${LIST.length} members · total due Tk ${fmt(due)} · as on ${fmtD(DATA.asOn)}</div>
+    <input id="q" placeholder="Search name or SL" style="text-transform:none" oninput="pickList()"><div id="plist" style="margin-top:10px"></div>`;
+  pickList();
+}
+function tabSummary() {
+  const x = SES.summary || {};
+  $("#tabBody").innerHTML = `<div class="kpis">${(x.cash || []).map(c => `<div class="kpi"><span class="muted">${esc(c.n)}</span><b>Tk ${fmt(c.b)}</b></div>`).join("")}
+    <div class="kpi"><span class="muted">Members' contributions</span><b>Tk ${fmt(x.contrib)}</b></div><div class="kpi"><span class="muted">Project assets</span><b>Tk ${fmt(x.projTotal)}</b></div>
+    <div class="kpi"><span class="muted">Dues receivable</span><b class="neg">Tk ${fmt(x.dues)}</b></div><div class="kpi"><span class="muted">Paid in advance</span><b>Tk ${fmt(x.adv)}</b></div></div>
+    <h2 style="margin-top:16px">Project assets by project</h2><table><tbody>${(x.projects || []).map(p => `<tr><td>${esc(p.n)}</td><td class="num">${fmt(p.b)}</td></tr>`).join("")}</tbody></table>
+    <div class="sub" style="margin-top:10px">As on ${fmtD(DATA.asOn)} · ${x.members || 0} active members · ${x.shares || 0} shares</div>`;
+}
+const K = () => SES.kit;
+const accOpt = (sel, f) => `<option value="">— account —</option>` + K().accounts.filter(f).map(a => `<option value="${a.c}" ${a.c === sel ? "selected" : ""}>${a.c} · ${esc(a.n)}</option>`).join("");
+const accOf = c => K().accounts.find(a => a.c === c) || {};
+const projOpt = sel => `<option value="">— project —</option>` + K().projects.map(p => `<option ${p === sel ? "selected" : ""}>${esc(p)}</option>`).join("");
+const memOpt = sel => `<option value="">— member —</option>` + LIST.map(m => `<option value="${m.id}" ${m.id === sel ? "selected" : ""}>${esc(m.sl ? m.sl + ". " : "")}${esc(m.name)}</option>`).join("");
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+function tabEntry() {
+  const cash = K().accounts.filter(a => a.cash);
+  if (!ELINES.length) ELINES = [{acc: "", project: "", mid: "", desc: "", amt: "", dr: "", cr: ""}];
+  $("#tabBody").innerHTML = `<div class="f">
+    <div class="tabs">${["Payment", "Bank / Cash", "Journal"].map(t => `<button class="${ETYPE === t ? "on" : ""}" onclick="ETYPE='${t}';ELINES=[];tabEntry()">${t}</button>`).join("")}</div>
+    <label>Date</label><input type="date" id="eDate" value="${today()}">
+    ${ETYPE === "Payment" ? `<label>Paid from</label><select id="eCash">${cash.map(a => `<option value="${a.c}">${esc(a.n)}</option>`).join("")}</select>
+      <label>Paid to / bill ref</label><input id="eRef" placeholder="name, bill or cheque no">` : ""}
+    ${ETYPE === "Bank / Cash" ? `<label>From</label><select id="eFrom">${cash.map(a => `<option value="${a.c}">${esc(a.n)}</option>`).join("")}</select>
+      <label>To</label><select id="eTo">${cash.map((a, i) => `<option value="${a.c}" ${i === 1 ? "selected" : ""}>${esc(a.n)}</option>`).join("")}</select>
+      <label>Amount (Tk)</label><input id="eAmt" type="number" step="0.01" min="0" inputmode="decimal"><label>Reference</label><input id="eRef" placeholder="cheque / slip no">` : ""}
+    ${ETYPE === "Journal" ? `<label>Reference</label><input id="eRef" placeholder="optional">` : ""}
+    ${ETYPE !== "Bank / Cash" ? `<div id="eLines"></div><button class="ghost" style="margin-top:10px" onclick="ELINES.push({acc:'',project:'',mid:'',desc:'',amt:'',dr:'',cr:''});eLines()">+ Add line</button><div id="eTot" style="margin-top:10px;font-weight:700"></div>` : ""}
+    <label>Note for the Main Admin</label><textarea id="eNote" rows="2" placeholder="optional"></textarea>
+    <div class="err" id="eErr"></div><button style="width:100%;margin-top:8px" onclick="sendEntry()">Send for approval</button>
+    <div class="sub" style="margin-top:8px">Nothing is posted until the Main Admin approves it.</div></div>`;
+  if (ETYPE !== "Bank / Cash") eLines();
+}
+function eLines() {
+  const pay = ETYPE === "Payment";
+  $("#eLines").innerHTML = ELINES.map((l, i) => { const a = accOf(l.acc); return `<div class="ln"><div class="row">
+      <select onchange="ELINES[${i}].acc=this.value;eLines()">${accOpt(l.acc, x => pay ? !x.cash && x.t !== "Income" : true)}</select>
+      ${a.p ? `<select disabled><option>${esc(a.p)}</option></select>` : `<select onchange="ELINES[${i}].project=this.value">${projOpt(l.project)}</select>`}</div>
+      ${a.mem ? `<select style="margin-top:8px" onchange="ELINES[${i}].mid=this.value">${memOpt(l.mid)}</select>` : ""}
+      <div class="row" style="margin-top:8px"><input placeholder="description" style="text-transform:none" value="${esc(l.desc)}" oninput="ELINES[${i}].desc=this.value">
+      ${pay ? `<input type="number" step="0.01" min="0" inputmode="decimal" placeholder="amount" value="${l.amt}" oninput="ELINES[${i}].amt=this.value;eTot()">`
+            : `<input type="number" step="0.01" min="0" inputmode="decimal" placeholder="debit" value="${l.dr}" oninput="ELINES[${i}].dr=this.value;eTot()"><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="credit" value="${l.cr}" oninput="ELINES[${i}].cr=this.value;eTot()">`}</div>
+      ${ELINES.length > 1 ? `<button class="ghost" style="margin-top:8px" onclick="ELINES.splice(${i},1);eLines()">Remove line</button>` : ""}</div>`; }).join("");
+  eTot();
+}
+const n2 = v => Math.round((parseFloat(v) || 0) * 100) / 100;
+function eTot() {
+  if (!$("#eTot")) return;
+  if (ETYPE === "Payment") { $("#eTot").textContent = "Total Tk " + fmt(ELINES.reduce((a, l) => a + n2(l.amt), 0)); return; }
+  const d = ELINES.reduce((a, l) => a + n2(l.dr), 0), c = ELINES.reduce((a, l) => a + n2(l.cr), 0);
+  $("#eTot").innerHTML = `Debit Tk ${fmt(d)} · Credit Tk ${fmt(c)} · ${Math.abs(d - c) < .005 ? '<span style="color:var(--g7)">balanced</span>' : '<span class="neg">difference Tk ' + fmt(d - c) + "</span>"}`;
+}
+async function sendEntry() {
+  const err = m => { $("#eErr").textContent = m; };
+  const date = $("#eDate").value, ref = ($("#eRef") || {}).value || "", note = $("#eNote").value.trim();
+  let lines = [], vtype;
+  if (ETYPE === "Payment") {
+    vtype = "Payment";
+    const L = ELINES.filter(l => l.acc || n2(l.amt));
+    if (!L.length) return err("Add at least one line.");
+    for (const l of L) { if (!l.acc) return err("Choose the account on every line."); if (!(n2(l.amt) > 0)) return err("Every line needs an amount."); if (accOf(l.acc).mem && !l.mid) return err("Choose the member for the refund line."); }
+    const tot = L.reduce((a, l) => a + n2(l.amt), 0);
+    lines = L.map(l => ({acc: l.acc, dr: n2(l.amt), cr: 0, project: accOf(l.acc).p || l.project, mid: accOf(l.acc).mem ? l.mid : "", desc: l.desc}));
+    lines.push({acc: $("#eCash").value, dr: 0, cr: Math.round(tot * 100) / 100, project: "", mid: "", desc: ref ? "Paid to " + ref : "Payment"});
+  } else if (ETYPE === "Bank / Cash") {
+    vtype = "Contra";
+    const amt = n2($("#eAmt").value), from = $("#eFrom").value, to = $("#eTo").value;
+    if (from === to) return err("From and To must be different."); if (!(amt > 0)) return err("Enter the amount.");
+    lines = [{acc: to, dr: amt, cr: 0, project: "", mid: "", desc: note}, {acc: from, dr: 0, cr: amt, project: "", mid: "", desc: note}];
+  } else {
+    vtype = "Journal";
+    const L = ELINES.filter(l => l.acc || n2(l.dr) || n2(l.cr));
+    for (const l of L) { if (!l.acc) return err("Choose the account on every line."); if (n2(l.dr) && n2(l.cr)) return err("A line takes a debit or a credit, not both."); if (accOf(l.acc).mem && !l.mid) return err("Choose the member on members' equity lines."); }
+    const d = L.reduce((a, l) => a + n2(l.dr), 0), c = L.reduce((a, l) => a + n2(l.cr), 0);
+    if (L.length < 2 || Math.abs(d - c) > .005) return err("Debits and credits must be equal.");
+    lines = L.map(l => ({acc: l.acc, dr: n2(l.dr), cr: n2(l.cr), project: accOf(l.acc).p || l.project, mid: accOf(l.acc).mem ? l.mid : "", desc: l.desc}));
+  }
+  if (!date) return err("Choose the date.");
+  err("Sending…");
+  try {
+    const res = await (await fetch(K().url, {method: "POST", body: JSON.stringify({key: K().key, action: "submit", by: (SES.me.uid || SES.me.id) + " " + SES.me.name, entry: {vtype, date, ref, note, lines}})})).json();
+    if (!res.ok) return err(res.error || "Not accepted.");
+    ELINES = []; TAB = "mine"; adminHome();
+  } catch (e) { err("Could not send – check the internet connection and try again."); }
+}
+async function tabMine() {
+  $("#tabBody").innerHTML = `<div class="muted">Loading…</div>`;
+  try {
+    const res = await (await fetch(K().url, {method: "POST", body: JSON.stringify({key: K().key, action: "mine", by: (SES.me.uid || SES.me.id) + " " + SES.me.name})})).json();
+    const rows = (res.rows || []).slice().reverse();
+    $("#tabBody").innerHTML = rows.length ? `<table><thead><tr><th>Entry</th><th class="num">Tk</th><th>Status</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.vtype)} · ${fmtD((r.entry || {}).date)}<div class="sub">${esc(r.id)}${(r.entry || {}).ref ? " · " + esc(r.entry.ref) : ""}</div>${r.status === "Rejected" && r.note ? `<div class="sub neg">${esc(r.note)}</div>` : ""}</td><td class="num">${fmt(r.amount)}</td><td><span class="st ${esc(r.status)}">${esc(r.status)}</span>${r.vno ? `<div class="sub">posted ${esc(r.vno)}</div>` : r.status === "Approved" ? `<div class="sub">posting soon</div>` : ""}</td></tr>`).join("")}</tbody></table>`
+      : `<div class="muted">No entries sent yet.</div>`;
+  } catch (e) { $("#tabBody").innerHTML = `<div class="err">Could not load – check the internet connection.</div>`; }
 }
 (async () => {
   try {
