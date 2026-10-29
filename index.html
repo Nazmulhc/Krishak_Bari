@@ -126,12 +126,12 @@ function loginView(msg) {
     e.preventDefault();
     const id = $("#mid").value.trim().toUpperCase(), pin = $("#pin").value.trim().toUpperCase();
     $("#err").textContent = "Opening…";
-    let boxes;
-    if (GAS) {
-      const res = await gsr("portalLogin", await sha256hex("KB|" + id), await sha256hex("KBV|" + id + "|" + pin)).catch(() => ({ok: false}));
-      if (res.locked) { $("#err").textContent = "Too many wrong tries – this login is locked for an hour."; return; }
-      boxes = res.boxes || [];
-    } else boxes = (DATA.logins || {})[await sha256hex("KB|" + id)] || [];
+    const h = await sha256hex("KB|" + id), v = await sha256hex("KBV|" + id + "|" + pin);
+    let res = null;
+    if (GAS) res = await gsr("portalLogin", h, v).catch(() => ({ok: false}));
+    else if (DATA.api) res = await pApi({action: "login", h, v}).catch(() => null);   // live from Google; the saved copy below only if Google can't be reached
+    if (res && res.locked) { $("#err").textContent = "Too many wrong tries – this login is locked for an hour."; return; }
+    const boxes = res ? (res.boxes || []) : ((DATA.logins || {})[h] || []);
     for (const box of boxes) {
       let r = null; try { r = await decrypt(box, pin); } catch (x) { continue; }
       try { localStorage.setItem("kb_id", id); if ($("#rem").checked) localStorage.setItem("kb_pw", pin); else localStorage.removeItem("kb_pw"); } catch (x) { }
@@ -345,11 +345,14 @@ async function tabMine() {
 (async () => {
   try {
     DATA = GAS ? await gsr("portalMeta") : await (await fetch("data.json?v=" + Date.now(), {cache: "no-store"})).json();
-    $("#soc").textContent = DATA.society || "Krishak Bari";
-    $("#asof").textContent = "Member statement · updated " + fmtD(DATA.asOn);
-    document.title = (DATA.short || "Krishak Bari") + " – Member Statement";
-    $("#foot").textContent = `${DATA.society} · figures as on ${fmtD(DATA.asOn)} · published ${DATA.published || ""}. Questions about your account? Contact the society.`;
-    loginView();
+    const head = () => {
+      $("#soc").textContent = DATA.society || "Krishak Bari";
+      $("#asof").textContent = "Member statement · updated " + fmtD(DATA.asOn);
+      document.title = (DATA.short || "Krishak Bari") + " – Member Statement";
+      $("#foot").textContent = `${DATA.society} · figures as on ${fmtD(DATA.asOn)} · published ${DATA.published || ""}. Questions about your account? Contact the society.`;
+    };
+    head(); loginView();
+    if (!GAS && DATA.api) pApi({action: "meta"}).then(live => { if (live && live.asOn) { Object.assign(DATA, live); head(); } }).catch(() => { });   // GitHub page: live date from Google
   } catch (e) { $("#app").innerHTML = `<div class="card">The statement page could not load. Please try again later.</div>`; }
 })();
 </script>
