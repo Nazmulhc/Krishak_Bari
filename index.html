@@ -60,6 +60,11 @@ select,.f textarea{width:100%;font:inherit;padding:10px 12px;border:1px solid #d
 .kpi{border:1px solid var(--line);border-radius:12px;padding:12px}.kpi b{display:block;font-size:19px;margin-top:4px}
 .st{font-size:12px;font-weight:700;padding:2px 9px;border-radius:12px}.st.Pending{background:#fbf1df;color:#94621a}.st.Approved{background:var(--g1);color:var(--g8)}.st.Rejected{background:var(--red1);color:var(--red)}
 footer{text-align:center;font-size:12px;color:var(--muted);padding:10px 16px 30px}
+body.vm main,body.vm header .in{max-width:480px}
+body.vd main,body.vd header .in{max-width:1150px}
+.vsw{display:flex;gap:6px;justify-content:center;align-items:center;font-size:12px;color:var(--muted);padding:0 16px 6px}
+.vsw button{background:#fff;color:var(--g8);border:1px solid var(--line);padding:4px 10px;font-size:12px;font-weight:600;border-radius:8px}
+.vsw button.on{background:var(--g8);color:#fff;border-color:var(--g8)}
 @media print{header,button,footer,.noprint{display:none!important}main{margin:0}body{background:#fff}.card{box-shadow:none}}
 </style>
 </head>
@@ -67,6 +72,7 @@ footer{text-align:center;font-size:12px;color:var(--muted);padding:10px 16px 30p
 <header><div class="in"><div class="logo"><svg viewBox="0 0 32 32" width="26" height="26"><path d="M16 4c-6 5-8 11-6 17 2-4 5-6 9-7-4 3-6 6-7 12 7-3 11-10 4-22z" fill="#1f5130"/></svg></div>
   <div><b id="soc">Krishak Bari</b><small id="asof">Member statement</small></div></div></header>
 <main id="app"><div class="card">Loading…</div></main>
+<div class="vsw noprint" id="vsw"></div>
 <footer id="foot"></footer>
 <script>
 "use strict";
@@ -342,6 +348,13 @@ async function tabMine() {
       : `<div class="muted">No entries sent yet.</div>`;
   } catch (e) { $("#tabBody").innerHTML = `<div class="err">Could not load – check the internet connection.</div>`; }
 }
+/* view: Auto (fits the screen) / Mobile (narrow) / Desktop (wide) – remembered on this device */
+function setView(v) {
+  try { localStorage.setItem("kb_view_p", v); } catch (e) { }
+  document.body.classList.toggle("vm", v === "m"); document.body.classList.toggle("vd", v === "d");
+  $("#vsw").innerHTML = "View " + [["auto", "Auto"], ["m", "Mobile"], ["d", "Desktop"]].map(([k, l]) => `<button class="${v === k ? "on" : ""}" onclick="setView('${k}')">${l}</button>`).join("");
+}
+setView((() => { try { return localStorage.getItem("kb_view_p") || "auto"; } catch (e) { return "auto"; } })());
 (async () => {
   try {
     DATA = GAS ? await gsr("portalMeta") : await (await fetch("data.json?v=" + Date.now(), {cache: "no-store"})).json();
